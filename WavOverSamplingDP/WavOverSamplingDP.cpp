@@ -92,14 +92,6 @@ void createHannCoeff(int tapNum, double* dest, double* dest2)
 
 __inline static int writeRaw32bitPCM(long long left, long long right, int* buffer)
 {
-	if (left >= 2147483647) left = 2147483647; // over 63bit : limitted to under [1 << 62]   62bit + 1bit
-	if (right >= 2147483647) right = 2147483647;
-	
-	//2147483648
-	if (left < -2147483648LL) left = -2147483648LL;
-	if (right < -2147483648LL) right = -2147483648LL;
-
-
 	buffer[0] = (int)left;
 	buffer[1] = (int)right;
 
@@ -127,7 +119,6 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 		for (int j = 1; j * 8 <= half_size; j += 4)
 		{
 			__m256d mDiffCoeff = _mm256_load_pd(coeffPtr);
-			//__m256d mDiffCoeff = _mm256_load_pd(coeff2Ptr);
 			__m128i mSrcV = _mm_loadu_si128((__m128i*)srcPtr); // RL RL RL RL   16 16 16 16 16 16 16 16
 			__m128i mSrcU = _mm_srli_si128(mSrcV, 4);          //    RL RL RL
 			__m128i mSrcX = _mm_unpacklo_epi16(mSrcV, mSrcU); //  lower RR LL
@@ -143,9 +134,9 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2); // FMA
 			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
 
-			mDiffCoeff = _mm256_load_pd(coeff2Ptr);
-			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2); // FMA
-			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
+			//mDiffCoeff = _mm256_load_pd(coeff2Ptr);
+			//tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2); // FMA
+			//tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
 
 			srcPtr += 8;
 			coeffPtr += 4;
@@ -175,9 +166,9 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2);
 			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
 
-			mDiffCoeff = _mm256_load_pd(coeff2Ptr);
-			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2); // FMA
-			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
+			//mDiffCoeff = _mm256_load_pd(coeff2Ptr);
+			//tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2); // FMA
+			//tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
 
 			srcPtr -= 8;
 			coeffPtr += 4;
@@ -186,9 +177,16 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 
 		double x = (tmp256Left2.m256d_f64[0] + tmp256Left2.m256d_f64[1] + tmp256Left2.m256d_f64[2] + tmp256Left2.m256d_f64[3]);
 		double y = (tmp256Right2.m256d_f64[0] + tmp256Right2.m256d_f64[1] + tmp256Right2.m256d_f64[2] + tmp256Right2.m256d_f64[3]);
+
 		tmpLR[0] = round(x);
 		tmpLR[1] = round(y);
+		
+		if (x < -2147483648.0) tmpLR[0] = -2147483647 - 1;
+		if (y < -2147483648.0) tmpLR[1] = -2147483647 - 1;
 
+		if (x > 2147483647.0) tmpLR[0] = 2147483647;
+		if (y > 2147483647.0) tmpLR[1] = 2147483647;
+		
 		writeRaw32bitPCM(tmpLR[0], tmpLR[1], dest + x8pos * 2);
 
 		src += 2;
