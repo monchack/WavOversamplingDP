@@ -23,10 +23,6 @@
 
 #define DATA_UNIT_SIZE (1024 * 512)
 
-// 16(15+1)bit  X  scale: 48(47+1)bit =  63(62+1)bit -> 32bit (31bit shift)
-#define COEFF_SCALE 47
-#define SCALE_SHIFT 31
-
 using namespace boost::multiprecision;
 using boost::math::constants::pi;
 
@@ -69,7 +65,7 @@ void createHannCoeff(int tapNum, double* dest, double* dest2)
 	}
 	coeff2[coeffNum - 1] = 0;
 
-	long long scale = 1LL << (COEFF_SCALE + 3);
+	long long scale = 352800 / 22050 * 32768;
 
 	#pragma omp parallel for
 	for (int i = 0; i < coeffNum; ++i)
@@ -96,35 +92,13 @@ void createHannCoeff(int tapNum, double* dest, double* dest2)
 
 __inline static int writeRaw32bitPCM(long long left, long long right, int* buffer)
 {
-	int shift = SCALE_SHIFT;
-
-
-	int add = 1 << (shift - 1);
-	int x = -1 << shift;
-
-	if (left >= 0) left += add;
-	else
-	{
-		left -= add;
-		if (left > x) left = 0;
-	}
-	if (right >= 0) right += add;
-	else
-	{
-		right -= add;
-		if (right > x) right = 0;
-	}
-
+	if (left >= 2147483647) left = 2147483647; // over 63bit : limitted to under [1 << 62]   62bit + 1bit
+	if (right >= 2147483647) right = 2147483647;
 	
-	if (left >= 4611686018427387904) left = 4611686018427387904 - 1; // over 63bit : limitted to under [1 << 62]   62bit + 1bit
-	if (right >= 4611686018427387904) right = 4611686018427387904 - 1;
+	//2147483648
+	if (left < -2147483648LL) left = -2147483648LL;
+	if (right < -2147483648LL) right = -2147483648LL;
 
-	if (left < -4611686018427387904) left = -4611686018427387904;
-	if (right < -4611686018427387904) right = -4611686018427387904;
-	
-
-	left = left >> shift;
-	right = right >> shift;
 
 	buffer[0] = (int)left;
 	buffer[1] = (int)right;
