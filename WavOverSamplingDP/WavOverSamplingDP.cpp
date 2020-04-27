@@ -102,10 +102,11 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 {
 	int half_size = (tapNum - 1) / 2;
 
-	__declspec(align(32)) long long tmpLR[4];
-
 	__m256d tmp256Left2;
 	__m256d tmp256Right2;
+
+	__m256d max256d = _mm256_set_pd(0, 0, 2147483647, 2147483647);
+	__m256d min256d = _mm256_set_pd(0, 0, -2147483647-1, -2147483647-1);
 
 	for (unsigned int i = 0; i < length; ++i)
 	{
@@ -116,78 +117,100 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 		double* coeffPtr = arrayedNormalCoeff[8 - x8pos]; //coeff + half_size - x8pos + 8;
 		double* coeff2Ptr = arrayedDiffCoeff[8 - x8pos];// coeff2 + half_size - x8pos + 8;
 
-		for (int j = 1; j * 8 <= half_size; j += 4)
+		for (int j = 1; j * 8 <= half_size; j += 8)
 		{
-			__m256d mDiffCoeff = _mm256_load_pd(coeffPtr);
-			__m128i mSrcV = _mm_loadu_si128((__m128i*)srcPtr); // RL RL RL RL   16 16 16 16 16 16 16 16
-			__m128i mSrcU = _mm_srli_si128(mSrcV, 4);          //    RL RL RL
-			__m128i mSrcX = _mm_unpacklo_epi16(mSrcV, mSrcU); //  lower RR LL
-			mSrcV = _mm_srli_si128(mSrcV, 8);  //  RL RL
-			mSrcU = _mm_srli_si128(mSrcV, 4);  //     RL
-			__m128i mSrcY = _mm_unpacklo_epi16(mSrcV, mSrcU); // upper RR LL
-			__m128i mSrcLLLL = _mm_unpacklo_epi32(mSrcX, mSrcY); // RR RR LL LL
-			__m128i mSrcRRRR = _mm_srli_si128(mSrcLLLL, 8); // RR RR
-			mSrcLLLL = _mm_cvtepi16_epi32(mSrcLLLL); // L32 L32 L32 L32 <- L16 L16 L16 L16
-			mSrcRRRR = _mm_cvtepi16_epi32(mSrcRRRR);
-			__m256d m256SrcLLLL = _mm256_cvtepi32_pd(mSrcLLLL); // L64D L64D L64D L64D // AVX
-			__m256d m256SrcRRRR = _mm256_cvtepi32_pd(mSrcRRRR);
-			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2); // FMA
-			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
+			__m256i mSrc256V = _mm256_load_si256((__m256i*)srcPtr); // RL RL RL RL   RL RL RL RL   16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16  256bit
+			__m256i mSrc256U = _mm256_srli_si256(mSrc256V, 4);      //    RL RL RL      RL RL RL 
+			__m256i mSrc256X = _mm256_unpacklo_epi16(mSrc256V, mSrc256U); // -- -- RR LL --  -- RR LL
+			mSrc256V = _mm256_srli_si256(mSrc256V, 8);  //  -- -- RL RL -- -- RL RL  AVX2
+			mSrc256U = _mm256_srli_si256(mSrc256V, 4);  //  -- -- -- RL -- -- -- RL
+			__m256i mSrc256Y = _mm256_unpacklo_epi16(mSrc256V, mSrc256U); //  -- -- RR LL -- -- RR LL   // AVX2
+			__m256i mSrc256LLLL = _mm256_unpacklo_epi32(mSrc256X, mSrc256Y); // RR RR LL LL RR RR LL LL
+			mSrc256LLLL = _mm256_permute4x64_epi64(mSrc256LLLL, _MM_SHUFFLE(3,1,2,0)); // RR RR RR RR LL LL LL LL  // AVX2
+			__m256i mSrc256RRRR = _mm256_permute4x64_epi64(mSrc256LLLL, _MM_SHUFFLE(1,0,3,2)); // LL LL LL LL RR RR RR RR
+			mSrc256LLLL = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(mSrc256LLLL)); // L32L32  L32L32  L32L32  L32L32  //  AVX2
+			mSrc256RRRR = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(mSrc256RRRR)); // R32R32  R32R32  R32R32  R32R32
 
-			//mDiffCoeff = _mm256_load_pd(coeff2Ptr);
-			//tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2); // FMA
-			//tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
+			//// first 4 samples 
 
-			srcPtr += 8;
-			coeffPtr += 4;
-			coeff2Ptr += 4;
+			__m256d mDiffCoeff1 = _mm256_load_pd(coeffPtr);
+			__m256d mDiffCoeff2 = _mm256_load_pd(coeffPtr + 4);
+			__m128i mSrcLLLL1 = _mm256_extractf128_si256(mSrc256LLLL, 0); // AVX
+			__m128i mSrcRRRR1 = _mm256_extractf128_si256(mSrc256RRRR, 0);
+			__m128i mSrcLLLL2 = _mm256_extractf128_si256(mSrc256LLLL, 1);
+			__m128i mSrcRRRR2 = _mm256_extractf128_si256(mSrc256RRRR, 1);
+
+
+			__m256d m256SrcLLLL1 = _mm256_cvtepi32_pd(mSrcLLLL1); // L64D L64D L64D L64D // AVX
+			__m256d m256SrcRRRR1 = _mm256_cvtepi32_pd(mSrcRRRR1);
+			__m256d m256SrcLLLL2 = _mm256_cvtepi32_pd(mSrcLLLL2); // L64D L64D L64D L64D // AVX
+			__m256d m256SrcRRRR2 = _mm256_cvtepi32_pd(mSrcRRRR2);
+
+			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL1, mDiffCoeff1, tmp256Left2); // FMA
+			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR1, mDiffCoeff1, tmp256Right2);
+			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL2, mDiffCoeff2, tmp256Left2); // FMA
+			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR2, mDiffCoeff2, tmp256Right2);
+
+			srcPtr += 16;
+			coeffPtr += 8;
+
 		}
 
 		srcPtr = src;
 		coeffPtr = arrayedNormalCoeff[x8pos]; //coeff + half_size + x8pos;
 		coeff2Ptr = arrayedDiffCoeff[x8pos];//coeff2 + half_size + x8pos;
 
-		for (int j = 0; j * 8 <= half_size; j += 4)
+		for (int j = 0; j * 8 <= half_size; j += 8)
 		{
-			__m256d mDiffCoeff = _mm256_load_pd(coeffPtr);
-			__m128i mSrcV = _mm_loadu_si128((__m128i*)(srcPtr-6)); // RL RL RL RL   16 16 16 16 16 16 16 16
-			mSrcV = _mm_shuffle_epi32(mSrcV, _MM_SHUFFLE(0,1,2,3)); // from(0), from(1), from(2), from(3)      3:2:1:0
-			__m128i mSrcU = _mm_srli_si128(mSrcV, 4);          //    RL RL RL
-			__m128i mSrcX = _mm_unpacklo_epi16(mSrcV, mSrcU); //  RR LL
-			mSrcV = _mm_srli_si128(mSrcV, 8);  //  RL RL
-			mSrcU = _mm_srli_si128(mSrcV, 4);  //     RL
-			__m128i mSrcY = _mm_unpacklo_epi16(mSrcV, mSrcU); //  RR LL
-			__m128i mSrcLLLL = _mm_unpacklo_epi32(mSrcX, mSrcY); //RR RR LL LL
-			__m128i mSrcRRRR = _mm_srli_si128(mSrcLLLL, 8); // RR RR
-			mSrcLLLL = _mm_cvtepi16_epi32(mSrcLLLL); // L32 L32 L32 L32 <- L16 L16 L16 L16
-			mSrcRRRR = _mm_cvtepi16_epi32(mSrcRRRR);
-			__m256d m256SrcLLLL = _mm256_cvtepi32_pd(mSrcLLLL); // L64D L64D L64D L64D
-			__m256d m256SrcRRRR = _mm256_cvtepi32_pd(mSrcRRRR);
-			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2);
-			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
+			__m256i mSrc256V = _mm256_load_si256((__m256i*)(srcPtr-14)); // RL RL RL RL   RL RL RL RL   16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16  256bit
+			//    AA BB   CC DD   EE FF   GG HH
+			mSrc256V = _mm256_permute4x64_epi64(mSrc256V, _MM_SHUFFLE(1, 0, 3, 2)); //  EE FF GG HH   AA BB CC DD
+			mSrc256V = _mm256_shuffle_epi32(mSrc256V, _MM_SHUFFLE(0, 1, 2, 3)); // HH GG FF EE DD CC BB AA
+			__m256i mSrc256U = _mm256_srli_si256(mSrc256V, 4);      //    RL RL RL      RL RL RL 
+			__m256i mSrc256X = _mm256_unpacklo_epi16(mSrc256V, mSrc256U); // -- -- RR LL --  -- RR LL
+			mSrc256V = _mm256_srli_si256(mSrc256V, 8);  //  -- -- RL RL -- -- RL RL 
+			mSrc256U = _mm256_srli_si256(mSrc256V, 4);  //  -- -- -- RL -- -- -- RL
+			__m256i mSrc256Y = _mm256_unpacklo_epi16(mSrc256V, mSrc256U); //  -- -- RR LL -- -- RR LL
+			__m256i mSrc256LLLL = _mm256_unpacklo_epi32(mSrc256X, mSrc256Y); // RR RR LL LL RR RR LL LL
+			mSrc256LLLL = _mm256_permute4x64_epi64(mSrc256LLLL, _MM_SHUFFLE(3, 1, 2, 0)); // RR RR RR RR LL LL LL LL
+			__m256i mSrc256RRRR = _mm256_permute4x64_epi64(mSrc256LLLL, _MM_SHUFFLE(1, 0, 3, 2)); // LL LL LL LL RR RR RR RR
+			mSrc256LLLL = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(mSrc256LLLL)); // L32L32  L32L32  L32L32  L32L32
+			mSrc256RRRR = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(mSrc256RRRR)); // R32R32  R32R32  R32R32  R32R32
 
-			//mDiffCoeff = _mm256_load_pd(coeff2Ptr);
-			//tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL, mDiffCoeff, tmp256Left2); // FMA
-			//tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR, mDiffCoeff, tmp256Right2);
+			//////////////
+			__m256d mDiffCoeff1 = _mm256_load_pd(coeffPtr);
+			__m256d mDiffCoeff2 = _mm256_load_pd(coeffPtr + 4);
+			__m128i mSrcLLLL1 = _mm256_extractf128_si256(mSrc256LLLL, 0); // AVX
+			__m128i mSrcRRRR1 = _mm256_extractf128_si256(mSrc256RRRR, 0);
+			__m128i mSrcLLLL2 = _mm256_extractf128_si256(mSrc256LLLL, 1);
+			__m128i mSrcRRRR2 = _mm256_extractf128_si256(mSrc256RRRR, 1);
 
-			srcPtr -= 8;
-			coeffPtr += 4;
-			coeff2Ptr += 4;
+
+			__m256d m256SrcLLLL1 = _mm256_cvtepi32_pd(mSrcLLLL1); // L64D L64D L64D L64D // AVX
+			__m256d m256SrcRRRR1 = _mm256_cvtepi32_pd(mSrcRRRR1);
+			__m256d m256SrcLLLL2 = _mm256_cvtepi32_pd(mSrcLLLL2); // L64D L64D L64D L64D // AVX
+			__m256d m256SrcRRRR2 = _mm256_cvtepi32_pd(mSrcRRRR2);
+
+			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL1, mDiffCoeff1, tmp256Left2); // FMA
+			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR1, mDiffCoeff1, tmp256Right2);
+			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL2, mDiffCoeff2, tmp256Left2); // FMA
+			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR2, mDiffCoeff2, tmp256Right2);
+
+			srcPtr -= 16;
+			coeffPtr += 8;
 		}
 
-		double x = (tmp256Left2.m256d_f64[0] + tmp256Left2.m256d_f64[1] + tmp256Left2.m256d_f64[2] + tmp256Left2.m256d_f64[3]);
-		double y = (tmp256Right2.m256d_f64[0] + tmp256Right2.m256d_f64[1] + tmp256Right2.m256d_f64[2] + tmp256Right2.m256d_f64[3]);
+		tmp256Left2 = _mm256_hadd_pd(tmp256Left2, tmp256Right2); // c'+d'  c+d  a'+b'  a+b
+		tmp256Left2 = _mm256_permute4x64_pd(tmp256Left2, _MM_SHUFFLE(3, 1, 2, 0)); // c'+d' a'+b' c+d a+b
+		tmp256Left2 = _mm256_hadd_pd(tmp256Left2, tmp256Left2); //  ---- a'+b'+c'+d' ---- a+b+c+d
+		tmp256Left2 = _mm256_permute4x64_pd(tmp256Left2, _MM_SHUFFLE(3, 1, 2, 0)); // a'+b'+c'+d' a+b+c+d
 
-		tmpLR[0] = round(x);
-		tmpLR[1] = round(y);
-		
-		if (x < -2147483648.0) tmpLR[0] = -2147483647 - 1;
-		if (y < -2147483648.0) tmpLR[1] = -2147483647 - 1;
+		tmp256Left2 = _mm256_min_pd(tmp256Left2, max256d);
+		tmp256Left2 = _mm256_max_pd(tmp256Left2, min256d);
+		tmp256Left2 = _mm256_round_pd(tmp256Left2, _MM_FROUND_TO_NEAREST_INT | _MM_FROUND_NO_EXC);
+		__m128i f = _mm_cvtpd_epi32(_mm256_castpd256_pd128(tmp256Left2));
+		_mm_storel_epi64((__m128i*)(dest + x8pos * 2), f);
 
-		if (x > 2147483647.0) tmpLR[0] = 2147483647;
-		if (y > 2147483647.0) tmpLR[1] = 2147483647;
-		
-		writeRaw32bitPCM(tmpLR[0], tmpLR[1], dest + x8pos * 2);
 
 		src += 2;
 		dest += 8 * 2;
@@ -446,7 +469,7 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 			{
 				++physicalProcessorCount;
 				std::bitset<64> a(logicalProcessorInfoPtr[i].ProcessorMask);
-				logicalProcessorCount += a.count();
+				logicalProcessorCount += (int)a.count();
 			}
 		}
 		::GlobalFree(logicalProcessorInfoPtr);
@@ -509,6 +532,13 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 		}
 	}
 	setCoeff(TAP_SIZE, firCoeff, firCoeff2);
+
+	//
+	long long asa[1024];
+	for (int i = 0; i < 1024; ++i)
+	{
+		asa[i] = (long long)(firCoeff2[i] * 10000);
+	}
 
 	elapsedTime = GetTickCount64() - startTime;
 	calcStartTime = GetTickCount64();
