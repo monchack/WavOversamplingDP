@@ -475,10 +475,11 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 		::GlobalFree(logicalProcessorInfoPtr);
 	}
 
-	// FMA3 and AVX are requied; Core i3/5/7/9 (Haswell) and later, AMD FX (Piledriver) and later
+	// FMA3 and AVX2 are requied; Intel Core i3(Haswell)/i5(Haswell)/i7(Haswell)/i9 and newer, AMD Ryzen and newer
 	int cpuinfo[4];
 	int isFma3Supported = 0;
 	int isAvxSupported = 0;
+	int isAvx2Supported = 0;
 	__cpuid(cpuinfo, 1);
 	if (cpuinfo[2] & (1 << 12)) // ECX 
 	{
@@ -489,6 +490,15 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 	{
 		//AVX supported
 		isAvxSupported = 1;
+	}
+	if (isAvxSupported)
+	{
+		__cpuid(cpuinfo, 7);
+		if (cpuinfo[1] & (1 << 5))
+		{
+			//AVX2 supported
+			isAvx2Supported = 1;
+		}
 	}
 
 	ULONGLONG startTime = GetTickCount64();
