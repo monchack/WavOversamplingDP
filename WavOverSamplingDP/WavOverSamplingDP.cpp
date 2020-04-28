@@ -533,13 +533,6 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 	}
 	setCoeff(TAP_SIZE, firCoeff, firCoeff2);
 
-	//
-	long long asa[1024];
-	for (int i = 0; i < 1024; ++i)
-	{
-		asa[i] = (long long)(firCoeff2[i] * 10000);
-	}
-
 	elapsedTime = GetTickCount64() - startTime;
 	calcStartTime = GetTickCount64();
 	std::cout << "WavOverSampling: Initialization finished:  " << (elapsedTime / 1000) << "." << (elapsedTime % 1000) << " sec  \n";
