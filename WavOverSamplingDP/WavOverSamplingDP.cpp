@@ -135,8 +135,8 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 
 			__m256d mDiffCoeff1 = _mm256_load_pd(coeffPtr);
 			__m256d mDiffCoeff2 = _mm256_load_pd(coeffPtr + 4);
-			__m128i mSrcLLLL1 = _mm256_extractf128_si256(mSrc256LLLL, 0); // AVX
-			__m128i mSrcRRRR1 = _mm256_extractf128_si256(mSrc256RRRR, 0);
+			__m128i mSrcLLLL1 = _mm256_castsi256_si128(mSrc256LLLL); //_mm256_extractf128_si256(mSrc256LLLL, 0); // AVX
+			__m128i mSrcRRRR1 = _mm256_castsi256_si128(mSrc256RRRR); // _mm256_extractf128_si256(mSrc256RRRR, 0);
 			__m128i mSrcLLLL2 = _mm256_extractf128_si256(mSrc256LLLL, 1);
 			__m128i mSrcRRRR2 = _mm256_extractf128_si256(mSrc256RRRR, 1);
 
@@ -180,8 +180,8 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 			//////////////
 			__m256d mDiffCoeff1 = _mm256_load_pd(coeffPtr);
 			__m256d mDiffCoeff2 = _mm256_load_pd(coeffPtr + 4);
-			__m128i mSrcLLLL1 = _mm256_extractf128_si256(mSrc256LLLL, 0); // AVX
-			__m128i mSrcRRRR1 = _mm256_extractf128_si256(mSrc256RRRR, 0);
+			__m128i mSrcLLLL1 = _mm256_castsi256_si128(mSrc256LLLL); //_mm256_extractf128_si256(mSrc256LLLL, 0); // AVX
+			__m128i mSrcRRRR1 = _mm256_castsi256_si128(mSrc256RRRR); //_mm256_extractf128_si256(mSrc256RRRR, 0);
 			__m128i mSrcLLLL2 = _mm256_extractf128_si256(mSrc256LLLL, 1);
 			__m128i mSrcRRRR2 = _mm256_extractf128_si256(mSrc256RRRR, 1);
 
@@ -563,7 +563,7 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 		}
 		if (i == 0) continue;
 	
-		struct oversample_info info[8];
+		__declspec(align(64)) struct oversample_info info[8];
 		info[0].src = (short* )mem2;
 		info[0].length = length / 4;
 		info[0].coeff = firCoeff;
@@ -572,8 +572,8 @@ int wmain(int argc, wchar_t *argv[], wchar_t *envp[])
 		info[0].dest = (int* )memOut;
 		info[0].option = 0;
 		
-		HANDLE thread[8];
-		DWORD threadId[8];
+		__declspec(align(64)) HANDLE thread[8];
+		__declspec(align(64)) DWORD threadId[8];
 		for (int j = 0; j < 8; ++j)
 		{
 			info[j] = info[0];
