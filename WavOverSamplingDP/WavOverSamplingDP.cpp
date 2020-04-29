@@ -121,20 +121,18 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 
 		for (int j = 1; j * 8 <= half_size; j += 8)
 		{
-			__m256i mSrc256V = _mm256_load_si256((__m256i*)srcPtr); // RL RL RL RL   RL RL RL RL   16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16  256bit
-			__m256i mSrc256LLLL = _mm256_shuffle_epi8(mSrc256V, ordermask1); // RR RR LL LL RR RR LL LL
+			__m256i mSrc256V = _mm256_load_si256((__m256i*)srcPtr); // RL RL RL RL   RL RL RL RL   256bit = 16bit x 2(stereo) x 8 samples
+			__m256i mSrc256LLLL = _mm256_shuffle_epi8(mSrc256V, ordermask1); // RR RR LL LL RR RR LL LL // AVX2
 			mSrc256LLLL = _mm256_permute4x64_epi64(mSrc256LLLL, _MM_SHUFFLE(3, 1, 2, 0)); // RR RR RR RR LL LL LL LL  // AVX2
-			__m256i mSrc256RRRR = _mm256_permute4x64_epi64(mSrc256LLLL, _MM_SHUFFLE(1,0,3,2)); // LL LL LL LL RR RR RR RR
+			__m256i mSrc256RRRR = _mm256_permute4x64_epi64(mSrc256LLLL, _MM_SHUFFLE(1,0,3,2)); // LL LL LL LL RR RR RR RR // AVX2
 			mSrc256LLLL = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(mSrc256LLLL)); // L32L32  L32L32  L32L32  L32L32  //  AVX2
 			mSrc256RRRR = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(mSrc256RRRR)); // R32R32  R32R32  R32R32  R32R32
 
-			//// first 4 samples 
-
 			__m256d mDiffCoeff1 = _mm256_load_pd(coeffPtr);
 			__m256d mDiffCoeff2 = _mm256_load_pd(coeffPtr + 4);
-			__m128i mSrcLLLL1 = _mm256_castsi256_si128(mSrc256LLLL); //_mm256_extractf128_si256(mSrc256LLLL, 0); // AVX
+			__m128i mSrcLLLL1 = _mm256_castsi256_si128(mSrc256LLLL); //_mm256_extractf128_si256(mSrc256LLLL, 0);
 			__m128i mSrcRRRR1 = _mm256_castsi256_si128(mSrc256RRRR); // _mm256_extractf128_si256(mSrc256RRRR, 0);
-			__m128i mSrcLLLL2 = _mm256_extractf128_si256(mSrc256LLLL, 1);
+			__m128i mSrcLLLL2 = _mm256_extractf128_si256(mSrc256LLLL, 1); // AVX
 			__m128i mSrcRRRR2 = _mm256_extractf128_si256(mSrc256RRRR, 1);
 
 			__m256d m256SrcLLLL1 = _mm256_cvtepi32_pd(mSrcLLLL1); // L64D L64D L64D L64D // AVX
@@ -142,14 +140,13 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 			__m256d m256SrcLLLL2 = _mm256_cvtepi32_pd(mSrcLLLL2); // L64D L64D L64D L64D // AVX
 			__m256d m256SrcRRRR2 = _mm256_cvtepi32_pd(mSrcRRRR2);
 
-			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL1, mDiffCoeff1, tmp256Left2); // FMA
+			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL1, mDiffCoeff1, tmp256Left2); // FMA3
 			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR1, mDiffCoeff1, tmp256Right2);
-			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL2, mDiffCoeff2, tmp256Left2); // FMA
+			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL2, mDiffCoeff2, tmp256Left2); // FMA3
 			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR2, mDiffCoeff2, tmp256Right2);
 
 			srcPtr += 16;
 			coeffPtr += 8;
-
 		}
 
 		srcPtr = src;
@@ -158,14 +155,13 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 
 		for (int j = 0; j * 8 <= half_size; j += 8)
 		{
-			__m256i mSrc256V = _mm256_load_si256((__m256i*)(srcPtr-14)); // RL RL RL RL   RL RL RL RL   16 16 16 16 16 16 16 16 16 16 16 16 16 16 16 16  256bit
+			__m256i mSrc256V = _mm256_load_si256((__m256i*)(srcPtr-14)); // RL RL RL RL   RL RL RL RL   256bit = 16bit x 2(stereo) x 8 samples
 			__m256i mSrc256LLLL = _mm256_shuffle_epi8(mSrc256V, ordermask2); // RR RR LL LL RR RR LL LL
 			mSrc256LLLL = _mm256_permute4x64_epi64(mSrc256LLLL, _MM_SHUFFLE(1, 3, 0, 2)); // RR RR RR RR LL LL LL LL
 			__m256i mSrc256RRRR = _mm256_permute4x64_epi64(mSrc256LLLL, _MM_SHUFFLE(1, 0, 3, 2)); // LL LL LL LL RR RR RR RR
 			mSrc256LLLL = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(mSrc256LLLL)); // L32L32  L32L32  L32L32  L32L32
 			mSrc256RRRR = _mm256_cvtepi16_epi32(_mm256_castsi256_si128(mSrc256RRRR)); // R32R32  R32R32  R32R32  R32R32
 
-			//////////////
 			__m256d mDiffCoeff1 = _mm256_load_pd(coeffPtr);
 			__m256d mDiffCoeff2 = _mm256_load_pd(coeffPtr + 4);
 			__m128i mSrcLLLL1 = _mm256_castsi256_si128(mSrc256LLLL); //_mm256_extractf128_si256(mSrc256LLLL, 0); // AVX
@@ -178,19 +174,18 @@ __inline int do_oversample(short* src, unsigned int length, double* coeff, doubl
 			__m256d m256SrcLLLL2 = _mm256_cvtepi32_pd(mSrcLLLL2); // L64D L64D L64D L64D // AVX
 			__m256d m256SrcRRRR2 = _mm256_cvtepi32_pd(mSrcRRRR2);
 
-			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL1, mDiffCoeff1, tmp256Left2); // FMA
+			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL1, mDiffCoeff1, tmp256Left2); // FMA3
 			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR1, mDiffCoeff1, tmp256Right2);
-			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL2, mDiffCoeff2, tmp256Left2); // FMA
+			tmp256Left2 = _mm256_fmadd_pd(m256SrcLLLL2, mDiffCoeff2, tmp256Left2); // FMA3
 			tmp256Right2 = _mm256_fmadd_pd(m256SrcRRRR2, mDiffCoeff2, tmp256Right2);
 
 			srcPtr -= 16;
 			coeffPtr += 8;
 		}
 
-		tmp256Left2 = _mm256_hadd_pd(tmp256Left2, tmp256Right2); // c'+d'  c+d  a'+b'  a+b
-		tmp256Left2 = _mm256_permute4x64_pd(tmp256Left2, _MM_SHUFFLE(3, 1, 2, 0)); // c'+d' a'+b' c+d a+b
-		tmp256Left2 = _mm256_hadd_pd(tmp256Left2, tmp256Left2); //  ---- a'+b'+c'+d' ---- a+b+c+d
-		tmp256Left2 = _mm256_permute4x64_pd(tmp256Left2, _MM_SHUFFLE(3, 1, 2, 0)); // a'+b'+c'+d' a+b+c+d
+		tmp256Left2 = _mm256_hadd_pd(tmp256Left2, tmp256Right2); // R2 + R3, L2 + L3, R1 + R0, L1 + L0
+		tmp256Right2 = _mm256_permute4x64_pd(tmp256Left2, _MM_SHUFFLE(1, 0, 3, 2)); //  R1 + R0, L1 + L0, R2 + R3, L2 + L3
+		tmp256Left2 = _mm256_add_pd(tmp256Left2, tmp256Right2);
 
 		tmp256Left2 = _mm256_min_pd(tmp256Left2, max256d);
 		tmp256Left2 = _mm256_max_pd(tmp256Left2, min256d);
